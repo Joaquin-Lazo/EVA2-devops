@@ -58,25 +58,26 @@ jobs:
       - uses: appleboy/ssh-action@v1
         name: Deploy Backend (via bastion)
         with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
+          proxy_host: ${{ secrets.EC2_FRONTEND_HOST }}
+          proxy_username: ec2-user
+          proxy_key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.BACKEND_PRIVATE_IP }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ec2-user@${{ secrets.BACKEND_PRIVATE_IP }} << 'EOF'
-              ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-              aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR
-              docker pull $ECR/logistica-ventas:latest
-              docker pull $ECR/logistica-despachos:latest
-              docker stop logistica-ventas logistica-despachos 2>/dev/null
-              docker rm logistica-ventas logistica-despachos 2>/dev/null
-              docker run -d --name logistica-ventas --restart unless-stopped -p 8080:8080 \
-                -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
-                -e DB_NAME=ventas_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
-                -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-                -v ventas-logs:/app/logs $ECR/logistica-ventas:latest
-              docker run -d --name logistica-despachos --restart unless-stopped -p 8081:8081 \
-                -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
-                -e DB_NAME=despachos_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
-                -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-                -v despachos-logs:/app/logs $ECR/logistica-despachos:latest
-            EOF
+            ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR
+            docker pull $ECR/logistica-ventas:latest
+            docker pull $ECR/logistica-despachos:latest
+            docker stop logistica-ventas logistica-despachos 2>/dev/null
+            docker rm logistica-ventas logistica-despachos 2>/dev/null
+            docker run -d --name logistica-ventas --restart unless-stopped -p 8080:8080 \
+              -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
+              -e DB_NAME=ventas_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -v ventas-logs:/app/logs $ECR/logistica-ventas:latest
+            docker run -d --name logistica-despachos --restart unless-stopped -p 8081:8081 \
+              -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
+              -e DB_NAME=despachos_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -v despachos-logs:/app/logs $ECR/logistica-despachos:latest
