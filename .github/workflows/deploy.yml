@@ -1,0 +1,82 @@
+name: "Build, Push & Deploy"
+
+on:
+  push:
+    branches: [deploy]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: aws ecr get-login-password | docker login --username AWS --password-stdin $ECR
+
+      - name: Build and push all images
+        run: |
+          docker build -t $ECR/logistica-frontend:latest ./front_despacho
+          docker build -t $ECR/logistica-ventas:latest ./back-Ventas_SpringBoot/Springboot-API-REST
+          docker build -t $ECR/logistica-despachos:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+          docker push $ECR/logistica-frontend:latest
+          docker push $ECR/logistica-ventas:latest
+          docker push $ECR/logistica-despachos:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        name: Deploy Frontend
+        with:
+          host: ${{ secrets.EC2_FRONTEND_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR
+            docker pull $ECR/logistica-frontend:latest
+            docker stop logistica-frontend 2>/dev/null; docker rm logistica-frontend 2>/dev/null
+            docker run -d --name logistica-frontend --restart unless-stopped \
+              -p 80:8080 \
+              -e VENTAS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8080 \
+              -e DESPACHOS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8081 \
+              -v frontend-cache:/var/cache/nginx \
+              $ECR/logistica-frontend:latest
+
+      - uses: appleboy/ssh-action@v1
+        name: Deploy Backend (via bastion)
+        with:
+          host: ${{ secrets.EC2_FRONTEND_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ec2-user@${{ secrets.BACKEND_PRIVATE_IP }} << 'EOF'
+              ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+              aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR
+              docker pull $ECR/logistica-ventas:latest
+              docker pull $ECR/logistica-despachos:latest
+              docker stop logistica-ventas logistica-despachos 2>/dev/null
+              docker rm logistica-ventas logistica-despachos 2>/dev/null
+              docker run -d --name logistica-ventas --restart unless-stopped -p 8080:8080 \
+                -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
+                -e DB_NAME=ventas_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
+                -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+                -v ventas-logs:/app/logs $ECR/logistica-ventas:latest
+              docker run -d --name logistica-despachos --restart unless-stopped -p 8081:8081 \
+                -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
+                -e DB_NAME=despachos_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
+                -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+                -v despachos-logs:/app/logs $ECR/logistica-despachos:latest
+            EOF
