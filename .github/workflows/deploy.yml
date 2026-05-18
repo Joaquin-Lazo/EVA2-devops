@@ -48,12 +48,7 @@ jobs:
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR
             docker pull $ECR/logistica-frontend:latest
             docker stop logistica-frontend 2>/dev/null; docker rm logistica-frontend 2>/dev/null
-            docker run -d --name logistica-frontend --restart unless-stopped \
-              -p 80:8080 \
-              -e VENTAS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8080 \
-              -e DESPACHOS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8081 \
-              -v frontend-cache:/var/cache/nginx \
-              $ECR/logistica-frontend:latest
+            docker run -d --name logistica-frontend --restart unless-stopped -p 80:8080 -e VENTAS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8080 -e DESPACHOS_UPSTREAM=${{ secrets.BACKEND_PRIVATE_IP }}:8081 -v frontend-cache:/var/cache/nginx $ECR/logistica-frontend:latest
 
       - uses: appleboy/ssh-action@v1
         name: Deploy Backend (via bastion)
@@ -71,13 +66,5 @@ jobs:
             docker pull $ECR/logistica-despachos:latest
             docker stop logistica-ventas logistica-despachos 2>/dev/null
             docker rm logistica-ventas logistica-despachos 2>/dev/null
-            docker run -d --name logistica-ventas --restart unless-stopped -p 8080:8080 \
-              -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
-              -e DB_NAME=ventas_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
-              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-              -v ventas-logs:/app/logs $ECR/logistica-ventas:latest
-            docker run -d --name logistica-despachos --restart unless-stopped -p 8081:8081 \
-              -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 \
-              -e DB_NAME=despachos_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
-              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-              -v despachos-logs:/app/logs $ECR/logistica-despachos:latest
+            docker run -d --name logistica-ventas --restart unless-stopped -p 8080:8080 -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 -e DB_NAME=ventas_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} -v ventas-logs:/app/logs $ECR/logistica-ventas:latest
+            docker run -d --name logistica-despachos --restart unless-stopped -p 8081:8081 -e DB_ENDPOINT=${{ secrets.DATA_PRIVATE_IP }} -e DB_PORT=3306 -e DB_NAME=despachos_db -e DB_USERNAME=${{ secrets.DB_USERNAME }} -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} -v despachos-logs:/app/logs $ECR/logistica-despachos:latest
